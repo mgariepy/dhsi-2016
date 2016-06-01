@@ -1,0 +1,9 @@
+#cloud-config
+package_upgrade: true
+packages:
+  - mysql-server
+  - php5
+  - php5-mysql
+  - libapache2-mod-php5
+  - curl
+  - mlocate
