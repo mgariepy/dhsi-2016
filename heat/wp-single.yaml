@@ -48,7 +48,7 @@ resources:
             wc_notify: { get_attr: ['wait_handle', 'curl_cli']}
             database-password: { get_attr: [db-password , value ]}
           template: |
-            #!/bin/bash -ex
+            #!/bin/bash -xv
             DB_NAME="wordpress"
             DB_USER="wordpress"
             DB_HOST=localhost
