@@ -1,0 +1,166 @@
+heat_template_version: 2013-05-23
+
+description: >
+  HOT template - wordpress single 
+
+parameters:
+  key_name:
+    type: string
+    description: SSH keypair name
+    constraints:
+      - custom_constraint: nova.keypair
+  image:
+    type: string
+    description: Image name, limited to ubuntu 14.04 (trusty) images
+    default: ubuntu-server-14.04-amd64
+    constraints:
+      - custom_constraint: glance.image
+  flavor:
+    type: string
+    description: Flavor
+    constraints:
+      - custom_constraint: nova.flavor
+    default: c1-3.75gb-36 
+  public_net:
+    type: string
+    description: public network
+    default: VLAN3337
+  private_net:
+    type: string
+    description: Private network
+    constraints:
+      - custom_constraint: neutron.network
+
+resources:
+  wp-server:
+    type: OS::Nova::Server
+    properties:
+      name: wp-server
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: wp-server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          params:
+            wc_notify: { get_attr: ['wait_handle', 'curl_cli']}
+            database-password: { get_attr: [db-password , value ]}
+            database-host: { get_attr: [ database-server, first_address ] }
+          template: |
+            #!/bin/bash -ex
+            DB_NAME="wordpress"
+            DB_USER="wordpress"
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install php5 libapache2-mod-php5 php5-mysql curl mlocate -f --yes --assume-yes --force-yes
+            wget http://wordpress.org/latest.tar.gz -O /tmp/latest.tar.gz
+            tar xf /tmp/latest.tar.gz -C /var/www/
+            cp /var/www/wordpress/wp-config-sample.php /var/www/wordpress/wp-config.php
+            sed -i "s/database_name_here/$DB_NAME/g" /var/www/wordpress/wp-config.php
+            sed -i "s/password_here/database-password/g" /var/www/wordpress/wp-config.php
+            sed -i "s/username_here/$DB_USER/g" /var/www/wordpress/wp-config.php
+            sed -i "s/localhost/database-host/g" /var/www/wordpress/wp-config.php
+            for i in `seq 1 8`; do
+              key=$(</dev/urandom tr -dc _A-Z-a-z-0-9 | head -c64)
+              sed -i "0,/put your unique phrase here/s/put your unique phrase here/$key/" /var/www/wordpress/wp-config.php
+            done
+            mv /var/www/wordpress /var/www/html/
+            wc_notify --data-binary '{"status": "SUCCESS", "reason": "wordpress server done"}'
+
+  database-server:
+    type: OS::Nova::Server
+    properties:
+      name: database-server
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: database-server_port }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          params:
+            wc_notify: { get_attr: ['wait_handle', 'curl_cli']}
+            database-password: { get_attr: [db-password , value ]}
+          template: |
+            #!/bin/bash -xv
+            DB_NAME="wordpress"
+            DB_USER="wordpress"
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install mysql-server -f --yes --assume-yes --force-yes
+            mysql <<EOF
+            CREATE DATABASE $DB_NAME;
+            GRANT SELECT,INSERT,UPDATE,DELETE,CREATE,DROP,ALTER
+            ON $DB_NAME.*
+            TO $DB_USER@'%'
+            IDENTIFIED BY 'database-password';
+            FLUSH PRIVILEGES;
+            EOF
+            sed -i "s/127.0.0.1/0.0.0.0/g" /etc/mysql/my.cnf
+            service mysql restart
+            wc_notify --data-binary '{"status": "SUCCESS", "reason": "databse server done"}'
+            
+
+  wait_condition:
+    type: OS::Heat::WaitCondition
+    properties:
+      handle: { get_resource: wait_handle }
+      count: 2
+      timeout: 200
+
+  wait_handle:
+    type: OS::Heat::WaitConditionHandle
+
+  db-password:
+    type: OS::Heat::RandomString
+
+  wp-server_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net }
+      security_groups: [{ get_resource: wp-security_group }]
+
+  database-server_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: private_net }
+      security_groups: [{ get_resource: database-security_group }]
+
+  wp-server_floating_ip:
+    type: OS::Neutron::FloatingIP
+    properties:
+      port_id: { get_resource: wp-server_port }
+      floating_network: { get_param: public_net }
+
+  wp-security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Add security group rules for wordpress access
+      name: wp-security_group
+      rules:
+        - remote_ip_prefix: 0.0.0.0/0
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+
+  database-security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: Add security group to allow database access from wordpress
+      name: database-security_group
+      rules:
+        - remote_ip_prefix: 192.168.0.0/16
+          protocol: tcp
+          port_range_min: 3306
+          port_range_max: 3306
+
+outputs:
+  wp-server-address-config:
+   description: Configure your site here.
+   value: 
+     str_replace:
+       template: http://host/wordpress/wp-admin/install.php
+       params: 
+         host: { get_attr: [ wp-server_floating_ip, floating_ip_address ] }
+
