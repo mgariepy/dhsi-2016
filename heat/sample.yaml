@@ -25,7 +25,7 @@ parameters:
   image:
     type: string
     description: Image name, limited to ubuntu 14.04 (trusty) images
-    default: Ubuntu_14.04_Trusty-amd64-20150708
+    default: ubuntu-server-14.04-amd64
     constraints:
       - custom_constraint: glance.image
   flavor:
