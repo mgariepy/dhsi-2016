@@ -112,10 +112,10 @@ resources:
 
 outputs:
   wp-server-address-config:
-   description: Configure your site here.
-   value: 
-     str_replace:
-       template: http://host/wordpress/wp-admin/install.php
-       params: 
-         host: { get_attr: [ wp-server_floating_ip, floating_ip_address ] }
+    description: Configure your site here.
+    value: 
+      str_replace:
+        template: http://host/wordpress/wp-admin/install.php
+        params: 
+          host: { get_attr: [ wp-server_floating_ip, floating_ip_address ] }
 
