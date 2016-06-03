@@ -5,5 +5,5 @@ packages:
   - php5
   - php5-mysql
   - libapache2-mod-php5
-  - curl
+  - wget
   - mlocate
